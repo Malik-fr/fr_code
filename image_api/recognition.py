@@ -1,4 +1,3 @@
-"""
 from pathlib import Path
 import os
 import face_recognition
@@ -11,8 +10,8 @@ import numpy as np
 BOUNDING_BOX_COLOR = "blue"
 TEXT_COLOR = "white"
 
-DEFAULT_ENCODINGS_PATH = settings.FACE_MODEL_ROOT
-with DEFAULT_ENCODINGS_PATH.open(mode="rb") as f:
+DEFAULT_ENCODINGS_PATH = os.path.join(settings.FACE_MODEL_ROOT, 'encodings.pkl')
+with open(DEFAULT_ENCODINGS_PATH, mode="rb") as f:
     loaded_encodings = pickle.load(f)
 
 def _display_face(draw, bounding_box, name):
@@ -33,6 +32,7 @@ def _display_face(draw, bounding_box, name):
     )
 
 def recog_face(loaded_encodings, current_img_pat):
+  print('recig func started')
 
   image = face_recognition.load_image_file(current_img_pat)
   face_locations = face_recognition.face_locations(image, model='hog')
@@ -53,6 +53,5 @@ def recog_face(loaded_encodings, current_img_pat):
   pillow_image = Image.fromarray(image)
   draw = ImageDraw.Draw(pillow_image)
   _display_face(draw, face_locations[0], name)
-  return pillow_image"""
-
+  return pillow_image
 

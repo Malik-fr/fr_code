@@ -4,13 +4,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import UploadedImage
 from .serializers import UploadedImageSerializer,ImageUploadSerializer
-#from .enroll import Enrollment_Face
+from .enroll import Enrollment_Face
+from .recognition import recog_face
 from django.conf import settings
 from PIL import Image, ImageFilter
 from django.http import HttpResponse
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 import numpy as np
+import cv2
+import pickle
 
 class ImageUploadView(APIView):
     def post(self, request):
@@ -42,9 +45,15 @@ class ImageUploadView(APIView):
             print('image_instance.image.name', image_instance.image.name)
             image_instance.save()
             # Open the image using PIL
-            img = Image.open(image_instance.image)
+            enrolled_img = image_instance.image
+            enrolled_name=image_instance.name
+            print('enrolled_img:...', enrolled_img)
+            print('enrolled_name:...', enrolled_name)
+            #the function below takes a list of images path, 
+            #As there is a single image, so convert the image into list
+            Enrollment_Face([enrolled_img], enrolled_name)
             # add the enrollment function below
-            print(np.array(img).size)
+            print('Enrollement completed')
             return HttpResponse(serializer.data, content_type="image/png")
             #return Response(, status=status.HTTP_201_CREATED)
         else:
@@ -60,13 +69,18 @@ class ImageUploadRecog(APIView):
             image_name = default_storage.save(image.name, ContentFile(image.read()))
             print('image_name',image_name)
             image_path = os.path.join(settings.MEDIA_ROOT, image_name)
-            
+            DEFAULT_ENCODINGS_PATH = os.path.join(settings.FACE_MODEL_ROOT, 'encodings.pkl')
+            with open(DEFAULT_ENCODINGS_PATH, mode="rb") as f:
+                loaded_encodings = pickle.load(f)
+
+            processed_image=recog_face(loaded_encodings, image_path)
+            print('recog_face function executed')
             # Open the image using PIL
-            img = Image.open(image_path)
+            #img = Image.open(image_path)
 
 
             # Perform some processing (e.g., convert to grayscale)
-            processed_image = img.convert('L')  # Example: Convert to grayscale
+            #processed_image = img.convert('L')  # Example: Convert to grayscale
 
             # Save the processed image
             processed_image_path = os.path.join(settings.MEDIA_ROOT,'recog_images')
