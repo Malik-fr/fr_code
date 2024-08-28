@@ -2,10 +2,11 @@ import os
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import UploadedImage
-from .serializers import UploadedImageSerializer,ImageUploadSerializer
-from .enroll import Enrollment_Face
-from .recognition import recog_face
+from .models import UploadedImage,Person
+from django.shortcuts import get_object_or_404
+from .serializers import UploadedImageSerializer,ImageUploadSerializer,PersonSerializer
+from .enroll import Enrollment_Face, img_resize, Enrollment_Face_updated
+from .recognition import recog_face,recog_face_updated
 from django.conf import settings
 from PIL import Image, ImageFilter
 from django.http import HttpResponse
@@ -14,6 +15,7 @@ from django.core.files.base import ContentFile
 import numpy as np
 import cv2
 import pickle
+import shutil
 
 class ImageUploadView(APIView):
     def post(self, request):
@@ -69,11 +71,13 @@ class ImageUploadRecog(APIView):
             image_name = default_storage.save(image.name, ContentFile(image.read()))
             print('image_name',image_name)
             image_path = os.path.join(settings.MEDIA_ROOT, image_name)
-            DEFAULT_ENCODINGS_PATH = os.path.join(settings.FACE_MODEL_ROOT, 'encodings.pkl')
+            DEFAULT_ENCODINGS_PATH = os.path.join(settings.FACE_MODEL_ROOT, 'encodings_updated.pkl')
             with open(DEFAULT_ENCODINGS_PATH, mode="rb") as f:
                 loaded_encodings = pickle.load(f)
 
-            processed_image=recog_face(loaded_encodings, image_path)
+            processed_image=recog_face_updated(loaded_encodings, image_path)
+            if isinstance(processed_image,str):
+                return HttpResponse(processed_image, content_type="text/plain")
             print('recog_face function executed')
             # Open the image using PIL
             #img = Image.open(image_path)
@@ -98,23 +102,63 @@ class ImageUploadRecog(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ImageProcessingView(APIView):
+
+def get_person_details(unique_id):
+    # Fetch the person object using the unique ID (primary key)
+    person = get_object_or_404(Person, id=unique_id)
+    
+    # Return the name, father_name, and date_of_birth fields
+    return {
+        'name': person.name,
+        'father_name': person.father_name,
+        'date_of_birth': person.date_of_birth,
+    }
+
+def get_unique_id(name, father_name, date_of_birth):
+    # Try to get the person object matching the given criteria
+    person = get_object_or_404(Person, name=name, father_name=father_name, date_of_birth=date_of_birth)
+    
+    # Return the primary key (id) of the person
+    return person.id
+def delete_person_by_id(person_id):
+    # Attempt to retrieve and delete the person by their unique ID
+    person = get_object_or_404(Person, id=person_id)
+    person.delete()
+    print('no face detected so rolling back the data...')
+
+class ImageEnroll(APIView):
     def post(self, request):
-        image_id = request.data('image_id')
-        try:
-            image_instance = UploadedImage.objects.get(id=image_id)
-            image_path = image_instance.image.path
+        print('request', request)
+        serializer = PersonSerializer(data=request.data)
+        print('data', request.data)
+        if serializer.is_valid():
+            print('The if statemtent hit...')
+            serializer.save()
+            enroll_serializer = serializer.instance
+            print('image name...::', enroll_serializer.image.name)
+            print('image path...::', enroll_serializer.image.path)
+            print(enroll_serializer.name, enroll_serializer.father_name, enroll_serializer.date_of_birth)
+            person_id=get_unique_id(enroll_serializer.name, enroll_serializer.father_name, enroll_serializer.date_of_birth)
             
-            # Open the image
-            img = Image.open(image_path)
-            
-            # Example processing: Apply a blur filter
-            img = img.filter(ImageFilter.BLUR)
-            
-            # Save the processed image (overwriting the original or creating a new one)
-            processed_image_path = image_path.replace('.jpg', '_processed.jpg')
-            img.save(processed_image_path)
-            
-            return Response({'message': 'Image processed successfully', 'processed_image': processed_image_path})
-        except UploadedImage.DoesNotExist:
-            return Response({'error': 'Image not found'}, status=404)
+            new_folder_name=f'{person_id}_{enroll_serializer.name.replace(" ", "")}'
+            new_folder_path = os.path.join(settings.MEDIA_ROOT, 'Enroll', new_folder_name)
+            os.makedirs(new_folder_path, exist_ok=True)
+            image_resize=img_resize(enroll_serializer.image.path)
+            print('image resized size...',image_resize.size)
+            new_img_path=os.path.join(new_folder_path, enroll_serializer.image.name.split('/')[-1])
+            print('new_img_path', new_img_path)
+                                      
+            cv2.imwrite(new_img_path, image_resize)
+            print('removed image...')
+            os.remove(enroll_serializer.image.path)
+            # add the enrollment function below
+            print('person_id::..', person_id)
+            message, fd=Enrollment_Face_updated([new_img_path], str(person_id))
+            if fd==0:
+                delete_person_by_id(person_id)
+
+            return HttpResponse(message, content_type="text/plain")
+            #return Response(, status=status.HTTP_201_CREATED)
+        else:
+            print('errorssss....', serializer.errors)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
